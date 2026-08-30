@@ -6,15 +6,14 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://client-tawny-kappa-19.vercel.app)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/mishraa-G/show_city)
-[![Interview Guide](https://img.shields.io/badge/Interview%20Study%20Guide-Deep%20Dive-FF6B6B?style=for-the-badge&logo=googledocs&logoColor=white)](./INTERVIEW_GUIDE.md)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%20(Neon)-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech)
 [![Redis](https://img.shields.io/badge/Cache%20%26%20Locks-Redis%20(Upstash)-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://upstash.com)
 [![Stripe](https://img.shields.io/badge/Payments-Stripe-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://stripe.com)
 
 <br />
 
-### 🌐 Live Production Application: [https://client-tawny-kappa-19.vercel.app](https://client-tawny-kappa-19.vercel.app)
-### 📘 Senior Engineering Interview Guide: [INTERVIEW_GUIDE.md](./INTERVIEW_GUIDE.md)
+### 🌐 Live Production Application
+### 👉 [https://client-tawny-kappa-19.vercel.app](https://client-tawny-kappa-19.vercel.app)
 
 </div>
 
