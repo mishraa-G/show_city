@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+*.env
+
+# Production build outputs
+dist/
+dist-ssr/
+build/
+
+# Operating System files
+.DS_Store
+*/.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Binary archives
+stripe.tar.gz

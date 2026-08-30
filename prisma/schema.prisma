@@ -1,0 +1,149 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String    @id // Matches Clerk User ID
+  email     String    @unique
+  name      String?
+  role      Role      @default(USER)
+  bookings  Booking[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model Movie {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  duration    Int      // Duration in minutes
+  genre       String
+  rating      String
+  language    String
+  releaseDate DateTime
+  posterUrl   String
+  shows       Show[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Theatre {
+  id        String   @id @default(uuid())
+  name      String
+  city      String
+  address   String
+  screens   Screen[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Screen {
+  id        String   @id @default(uuid())
+  name      String
+  theatreId String
+  theatre   Theatre  @relation(fields: [theatreId], references: [id], onDelete: Cascade)
+  seats     Seat[]
+  shows     Show[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Seat {
+  id        String        @id @default(uuid())
+  screenId  String
+  screen    Screen        @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  row       String
+  number    Int
+  type      SeatType      @default(STANDARD)
+  bookings  BookingSeat[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([screenId, row, number]) // Ensure physical seats are unique within a screen
+}
+
+enum SeatType {
+  STANDARD
+  PREMIUM
+  VIP
+}
+
+model Show {
+  id        String    @id @default(uuid())
+  movieId   String
+  movie     Movie     @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  screenId  String
+  screen    Screen    @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  startTime DateTime
+  endTime   DateTime
+  price     Decimal   @db.Decimal(10, 2)
+  bookings  Booking[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([movieId])
+  @@index([screenId])
+  @@index([startTime])
+}
+
+model Booking {
+  id         String        @id @default(uuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  showId     String
+  show       Show          @relation(fields: [showId], references: [id], onDelete: Cascade)
+  status     BookingStatus @default(PENDING)
+  totalPrice Decimal       @db.Decimal(10, 2)
+  seats      BookingSeat[]
+  payment    Payment?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([showId])
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+model BookingSeat {
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seatId    String
+  seat      Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([bookingId, seatId]) // Composite primary key
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  bookingId             String        @unique
+  booking               Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  stripeSessionId       String        @unique
+  stripePaymentIntentId String?       @unique
+  status                PaymentStatus @default(PENDING)
+  amount                Decimal       @db.Decimal(10, 2)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
