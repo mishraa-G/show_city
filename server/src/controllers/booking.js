@@ -52,36 +52,12 @@ export const createBooking = async (req, res, next) => {
     // Standardize database seat IDs (e.g. "${screenId}-${row}-${number}")
     const databaseSeatIds = cleanSeats.map(s => `${show.screenId}-${s}`)
 
-    // 2. Perform Database Transaction with active hold window verification
+    // 2. Perform Database Transaction with atomic ShowSeat invariant enforcement
     let booking
     try {
       booking = await prisma.$transaction(async (tx) => {
-        // Only consider bookings from the last 10 minutes if status is PENDING; all CONFIRMED are permanent
-        const holdCutoff = new Date(Date.now() - 10 * 60 * 1000)
-
-        const conflictingBookings = await tx.bookingSeat.findMany({
-          where: {
-            seatId: { in: databaseSeatIds },
-            booking: {
-              showId,
-              OR: [
-                { status: 'CONFIRMED' },
-                {
-                  status: 'PENDING',
-                  createdAt: { gte: holdCutoff }
-                }
-              ]
-            }
-          },
-          include: { booking: true }
-        })
-
-        // Check if any conflicting seat belongs to another user
-        const otherUserHold = conflictingBookings.find(b => b.booking.userId !== userId)
-        if (otherUserHold) {
-          const bookedSeatLabel = normalizeSeatId(otherUserHold.seatId)
-          throw new Error(`Seat [${bookedSeatLabel}] is already booked or held by another customer.`)
-        }
+        const now = new Date()
+        const lockExpiry = new Date(now.getTime() + 10 * 60 * 1000)
 
         // Upsert User record in PostgreSQL
         await tx.user.upsert({
@@ -89,8 +65,8 @@ export const createBooking = async (req, res, next) => {
           update: {},
           create: {
             id: userId,
-            email: req.auth.claims?.email || `${userId}@showcity.com`,
-            name: req.auth.claims?.name || 'ShowCity Customer'
+            email: req.auth?.claims?.email || `${userId}@showcity.com`,
+            name: req.auth?.claims?.name || 'ShowCity Customer'
           }
         })
 
@@ -111,13 +87,51 @@ export const createBooking = async (req, res, next) => {
           include: { seats: true }
         })
 
+        // ATOMIC DATABASE CLAIM: Conditionally claim ShowSeat rows
+        // Only succeeds if the seat is AVAILABLE or if a previous hold has expired
+        const claimResult = await tx.showSeat.updateMany({
+          where: {
+            showId,
+            seatId: { in: databaseSeatIds },
+            OR: [
+              { status: 'AVAILABLE' },
+              { status: 'HELD', lockedUntil: { lt: now } }
+            ]
+          },
+          data: {
+            status: 'HELD',
+            bookingId: newBooking.id,
+            lockedUntil: lockExpiry,
+            version: { increment: 1 }
+          }
+        })
+
+        // If the number of claimed rows does not match requested seats, someone else took a seat!
+        if (claimResult.count !== databaseSeatIds.length) {
+          const conflictingSeats = await tx.showSeat.findMany({
+            where: {
+              showId,
+              seatId: { in: databaseSeatIds },
+              NOT: {
+                OR: [
+                  { status: 'AVAILABLE' },
+                  { status: 'HELD', lockedUntil: { lt: now } }
+                ]
+              }
+            }
+          })
+          const conflictLabels = conflictingSeats.map(s => normalizeSeatId(s.seatId))
+          const labelStr = conflictLabels.length > 0 ? conflictLabels.join(', ') : cleanSeats.join(', ')
+          throw new Error(`Seat(s) [${labelStr}] are already booked or held by another customer.`)
+        }
+
         return newBooking
       }, { timeout: 15000 })
     } catch (dbError) {
       // If DB checks fail, immediately release the Redis lock to avoid deadlocks
       await releaseSeats(showId, cleanSeats, userId)
 
-      if (dbError.message && dbError.message.includes('already booked')) {
+      if (dbError.message && (dbError.message.includes('already booked') || dbError.message.includes('already held'))) {
         return res.status(409).json({ error: dbError.message })
       }
 
@@ -165,10 +179,16 @@ export const releaseBookingSeats = async (req, res, next) => {
         })
         if (booking && (!userId || booking.userId === userId)) {
           seatsToRelease = booking.seats.map(s => normalizeSeatId(s.seatId))
-          await prisma.booking.update({
-            where: { id: bookingId },
-            data: { status: 'CANCELLED' }
-          })
+          await prisma.$transaction([
+            prisma.booking.update({
+              where: { id: bookingId },
+              data: { status: 'CANCELLED' }
+            }),
+            prisma.showSeat.updateMany({
+              where: { bookingId, status: 'HELD' },
+              data: { status: 'AVAILABLE', bookingId: null, lockedUntil: null }
+            })
+          ])
         }
       } catch (e) {
         console.warn('⚠️ DB update for booking cancellation skipped:', e.message)
@@ -200,34 +220,35 @@ export const getLockedSeats = async (req, res, next) => {
   }
 
   try {
-    // 1. Fetch confirmed / active bookings from PostgreSQL
+    // 1. Fetch confirmed bookings and active DB holds from PostgreSQL ShowSeat inventory
     let bookedSeats = []
+    let dbHeldSeats = []
     try {
-      const holdCutoff = new Date(Date.now() - 10 * 60 * 1000)
-      const dbBooked = await prisma.bookingSeat.findMany({
-        where: {
-          booking: {
-            showId,
-            OR: [
-              { status: 'CONFIRMED' },
-              { status: 'PENDING', createdAt: { gte: holdCutoff } }
-            ]
-          }
-        },
+      const now = new Date()
+      const showSeats = await prisma.showSeat.findMany({
+        where: { showId },
         include: { booking: true }
       })
 
-      bookedSeats = dbBooked
-        .filter(b => b.booking.status === 'CONFIRMED')
-        .map(b => normalizeSeatId(b.seatId))
+      for (const ss of showSeats) {
+        const seatLabel = normalizeSeatId(ss.seatId)
+        if (ss.status === 'BOOKED' || ss.booking?.status === 'CONFIRMED') {
+          bookedSeats.push(seatLabel)
+        } else if (ss.status === 'HELD' && ss.lockedUntil && new Date(ss.lockedUntil) > now) {
+          dbHeldSeats.push(seatLabel)
+        }
+      }
     } catch (e) {
-      console.warn('⚠️ Database query failed for booked seats. Using mock defaults.')
+      console.warn('⚠️ Database query failed for booked seats. Using mock defaults:', e.message)
       bookedSeats = ['A-3', 'B-6', 'D-1', 'D-2']
     }
 
     // 2. Fetch active temporary holds from Redis/In-Memory mutex
     const activeLocks = await getActiveLocks(showId)
-    const lockedSeats = activeLocks.map(l => l.seatId)
+    const redisLockedSeats = activeLocks.map(l => l.seatId)
+
+    // Union of Redis locks and active DB holds
+    const lockedSeats = Array.from(new Set([...redisLockedSeats, ...dbHeldSeats]))
 
     return res.json({
       showId,

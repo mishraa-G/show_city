@@ -195,10 +195,16 @@ export const handleWebhook = async (req, res, next) => {
             if (dbBooking) {
               const seatLabels = dbBooking.seats.map(s => normalizeSeatId(s.seatId))
               await releaseSeats(dbBooking.showId, seatLabels)
-              await prisma.booking.update({
-                where: { id: expiredBookingId },
-                data: { status: 'CANCELLED' }
-              })
+              await prisma.$transaction([
+                prisma.booking.update({
+                  where: { id: expiredBookingId },
+                  data: { status: 'CANCELLED' }
+                }),
+                prisma.showSeat.updateMany({
+                  where: { bookingId: expiredBookingId, status: 'HELD' },
+                  data: { status: 'AVAILABLE', bookingId: null, lockedUntil: null }
+                })
+              ])
               console.log(`⏱️ Stripe Checkout session expired. Released seats [${seatLabels.join(', ')}]`)
             }
           } catch (expErr) {
@@ -251,6 +257,10 @@ export const handleWebhook = async (req, res, next) => {
         prisma.booking.update({
           where: { id: bookingId },
           data: { status: 'CONFIRMED' }
+        }),
+        prisma.showSeat.updateMany({
+          where: { bookingId },
+          data: { status: 'BOOKED', lockedUntil: null }
         }),
         prisma.payment.upsert({
           where: { bookingId },

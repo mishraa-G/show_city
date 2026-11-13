@@ -5,6 +5,7 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../server/node_modules/.prisma/client"
 }
 
 model User {
@@ -26,7 +27,7 @@ model Movie {
   id          String   @id @default(uuid())
   title       String
   description String
-  duration    Int      // Duration in minutes
+  duration    Int // Duration in minutes
   genre       String
   rating      String
   language    String
@@ -66,6 +67,7 @@ model Seat {
   number    Int
   type      SeatType      @default(STANDARD)
   bookings  BookingSeat[]
+  showSeats ShowSeat[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -79,17 +81,18 @@ enum SeatType {
 }
 
 model Show {
-  id        String    @id @default(uuid())
+  id        String     @id @default(uuid())
   movieId   String
-  movie     Movie     @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  movie     Movie      @relation(fields: [movieId], references: [id], onDelete: Cascade)
   screenId  String
-  screen    Screen    @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  screen    Screen     @relation(fields: [screenId], references: [id], onDelete: Cascade)
   startTime DateTime
   endTime   DateTime
-  price     Decimal   @db.Decimal(10, 2)
+  price     Decimal    @db.Decimal(10, 2)
   bookings  Booking[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  showSeats ShowSeat[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   @@index([movieId])
   @@index([screenId])
@@ -105,6 +108,7 @@ model Booking {
   status     BookingStatus @default(PENDING)
   totalPrice Decimal       @db.Decimal(10, 2)
   seats      BookingSeat[]
+  showSeats  ShowSeat[]
   payment    Payment?
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
@@ -117,6 +121,32 @@ enum BookingStatus {
   PENDING
   CONFIRMED
   CANCELLED
+}
+
+model ShowSeat {
+  showId      String
+  seatId      String
+  bookingId   String?
+  status      SeatStatus @default(AVAILABLE)
+  lockedUntil DateTime?
+  version     Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  show    Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
+  seat    Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@id([showId, seatId])
+  @@index([showId, status])
+  @@index([bookingId])
+  @@index([status, lockedUntil])
+}
+
+enum SeatStatus {
+  AVAILABLE
+  HELD
+  BOOKED
 }
 
 model BookingSeat {

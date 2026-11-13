@@ -8,6 +8,7 @@ async function main() {
   // 1. Clean existing records (in order of relations)
   console.log('🧹 Cleaning existing data...')
   await prisma.payment.deleteMany()
+  await prisma.showSeat.deleteMany()
   await prisma.bookingSeat.deleteMany()
   await prisma.booking.deleteMany()
   await prisma.show.deleteMany()
@@ -168,7 +169,7 @@ async function main() {
     const durationMins = movie ? movie.duration : 120
     const endTime = new Date(startTime.getTime() + durationMins * 60 * 1000)
 
-    await prisma.show.create({
+    const show = await prisma.show.create({
       data: {
         id: showDetail.id,
         movieId: showDetail.movieId,
@@ -177,6 +178,19 @@ async function main() {
         endTime,
         price: showDetail.price,
       },
+    })
+
+    // Seed physical seats inventory for this show
+    const screenSeats = await prisma.seat.findMany({
+      where: { screenId: showDetail.screenId }
+    })
+    await prisma.showSeat.createMany({
+      data: screenSeats.map(seat => ({
+        showId: show.id,
+        seatId: seat.id,
+        status: 'AVAILABLE'
+      })),
+      skipDuplicates: true
     })
   }
 
